@@ -454,10 +454,15 @@ AsyncTest("single instance is per process and a crashed owner does not block the
         var deadline = DateTime.UtcNow.AddSeconds(5);
         while (DateTime.UtcNow < deadline)
         {
-            if (File.Exists(path) && await File.ReadAllTextAsync(path) == expected) return expected;
+            try
+            {
+                if (File.Exists(path) && await File.ReadAllTextAsync(path) == expected) return expected;
+            }
+            catch (IOException) { }
             await Task.Delay(20);
         }
-        return File.Exists(path) ? await File.ReadAllTextAsync(path) : "missing";
+        try { return File.Exists(path) ? await File.ReadAllTextAsync(path) : "missing"; }
+        catch (IOException) { return "locked"; }
     }
     Process Hold(string mutexName, string path)
     {
@@ -502,8 +507,14 @@ AsyncTest("single instance is per process and a crashed owner does not block the
     finally
     {
         if (!holder.HasExited) { try { holder.Kill(); } catch (InvalidOperationException) { } }
-        if (File.Exists(marker)) File.Delete(marker);
-        if (File.Exists(abandonedMarker)) File.Delete(abandonedMarker);
+        foreach (var path in new[] { marker, abandonedMarker })
+        {
+            for (int attempt = 0; attempt < 10 && File.Exists(path); attempt++)
+            {
+                try { File.Delete(path); }
+                catch (IOException) { await Task.Delay(50); }
+            }
+        }
     }
 });
 AsyncTest("authentication and port errors stay visible and cancellable", async () =>

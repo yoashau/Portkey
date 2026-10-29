@@ -6,7 +6,11 @@ Windows 10/11 x64 托盘式 SSH 反向代理管理器。C# / .NET 10 / WPF，使
 
 ## 获取和启动
 
-在 Windows 上运行 `scripts/build.ps1` 后，发布产物位于 `artifacts/win-x64/Portkey.exe`。该目录不进入版本库。将 EXE 复制到固定目录后运行。自包含单文件，无需另装 .NET Runtime；首次启动会解压原生运行库到 .NET 的用户缓存。EXE 约 166 MiB，这主要来自自包含的 WPF/.NET 运行库。无需管理员权限。当前产物未签名。
+Windows x64 自包含单文件发布包：
+
+[Portkey.exe](https://github.com/yoashau/Portkey/releases/download/v1.0.0/Portkey.exe)
+
+也可以在 Windows 上运行 `scripts/build.ps1`，产物位于 `artifacts/win-x64/Portkey.exe`。该目录不进入版本库。将 EXE 复制到固定目录后运行。自包含单文件，无需另装 .NET Runtime；首次启动会解压原生运行库到 .NET 的用户缓存。EXE 约 165 MiB，这主要来自自包含的 WPF/.NET 运行库。无需管理员权限。当前产物未签名。
 
 启动后只显示托盘图标。左键展开/收起，点击外部或外部窗口获得焦点时收起，Esc 收起；右键提供显示、连接/暂停、重连、日志和退出。第二次启动会激活已有实例。可用 `Portkey.exe --show` 在启动时显示面板。
 
