@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>../../assets/Portkey.ico</ApplicationIcon>
+    <AssemblyName>Portkey</AssemblyName>
+    <Version>1.0.0</Version>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System" /><Using Include="System.IO" /><Using Include="System.Linq" />
+    <Using Include="System.Collections.Generic" /><Using Include="System.Threading" />
+    <Using Include="System.Threading.Tasks" />
+    <ProjectReference Include="../Portkey.Infrastructure/Portkey.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

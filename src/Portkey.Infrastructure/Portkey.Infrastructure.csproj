@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Portkey.Core/Portkey.Core.csproj" />
+    <EmbeddedResource Include="Remote/agent.py" />
+  </ItemGroup>
+</Project>

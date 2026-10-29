@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/Portkey.Infrastructure/Portkey.Infrastructure.csproj" /></ItemGroup>
+  <ItemGroup><Compile Include="../../src/Portkey.App/FlyoutPlacement.cs" Link="FlyoutPlacement.cs" /></ItemGroup>
+</Project>
