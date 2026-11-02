@@ -1,12 +1,15 @@
 # 运维与故障处理
 
+日常使用以仓库根目录的 README 为准。连接设置是唯一入口：保存时同步 Portkey 自己的服务器配置；手动改过的 Portkey 内容不会自动覆盖，并会明确提示没有同步。
+
+
 ## 代码路径
 
 | 位置 | 职责 |
 | --- | --- |
 | `Portkey.Core/Models.cs` | 配置验证、状态、错误分类、退避 |
 | `Portkey.Core/Deployment.cs` | 纯函数部署规划、内容所有权、预览 |
-| `Portkey.Infrastructure/Ssh.cs` | OpenSSH 参数、`ssh -G`、Host 候选发现、超时进程执行 |
+| `Portkey.Infrastructure/Ssh.cs` | OpenSSH 参数、`ssh -G`、Host 候选发现、导入时只读取配置里写明的用户/端口/私钥、超时进程执行 |
 | `Portkey.Infrastructure/Connections.cs` | SSH 生命周期、转发确认、代理探测、重试/取消 |
 | `Portkey.Infrastructure/SshProxyProbe.cs` | 经 SSH stdio 的远程端口探测，复用 .NET HTTP/SOCKS5/TLS 实现 |
 | `Portkey.Infrastructure/ProcessJob.cs` | Windows Job Object，进程异常退出时结束自有子进程 |
@@ -19,7 +22,7 @@
 
 SSH 连接状态依次经过本地回环端口可用、OpenSSH `remote forward success`、经 Linux 回环端口的实际 HTTPS 请求。Mixed 模式两个协议都通过才为正常。30 秒周期复查；SSH 退出立即触发重连，本地代理缺失进入等待。
 
-健康检测使用 OpenSSH 自带的 `-W 127.0.0.1:远程端口`，将标准输入/输出作为远程 TCP 流交给 .NET `SocketsHttpHandler.ConnectCallback`。不创建 Windows 探测监听端口，不执行远程 HTTP 工具，也不安装软件。每个短期探测进程都由 Job Object 和取消机制管理。
+健康检测目标固定为 `https://www.gstatic.com/generate_204`，预期 204，超时 25 秒，界面不能改。探测使用 OpenSSH 自带的 `-W 127.0.0.1:远程端口`，将标准输入/输出作为远程 TCP 流交给 .NET `SocketsHttpHandler.ConnectCallback`。不创建 Windows 探测监听端口，不执行远程 HTTP 工具，也不安装软件。每个短期探测进程都由 Job Object 和取消机制管理。
 
 ```text
 Windows .NET HTTP/SOCKS5 客户端
@@ -40,7 +43,7 @@ Windows .NET HTTP/SOCKS5 客户端
 | Host key verification failed | 首次认证窗口中核对指纹后确认；已更改指纹需先联系管理员，不自动移除 known_hosts |
 | Permission denied (publickey) | 检查目标用户、IdentityFile、公钥授权和 ssh-agent；应用不保存密码 |
 | 等待本地代理 | 启动本地 FlClash，核对监听地址和端口；不必打开局域网访问 |
-| remote port forwarding failed | 端口占用或服务器禁止转发；占用者未知，更换远程端口或自行关闭旧隧道 |
+| remote port forwarding failed | 服务器端口已被占用。换一个端口后保存；不要结束看不清的占用者。保存若提示没有同步，服务器上的旧地址仍有效 |
 | SSH Host 已有转发 | 用专用 Host 别名继承连接信息，但不配置 LocalForward/RemoteForward/DynamicForward；不要让此工具重复启动其他业务隧道 |
 | curl 不存在 | 不影响健康检测，不需要安装 curl |
 | SSH 检测通道被禁止 | 服务端禁止 direct-tcpip；需管理员确认转发策略，不自动修改配置 |

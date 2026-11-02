@@ -18,6 +18,14 @@ if (args is ["--child-hold", var marker])
     await Task.Delay(TimeSpan.FromSeconds(30));
     return 0;
 }
+if (args is ["--echo-stdin-hex"])
+{
+    using var input = Console.OpenStandardInput();
+    using var memory = new MemoryStream();
+    input.CopyTo(memory);
+    Console.Write(Convert.ToHexString(memory.ToArray()));
+    return 0;
+}
 if (args is ["--hold-mutex", var mutexName, var mutexMarker])
 {
     using var gate = new SingleInstance(mutexName);
@@ -30,6 +38,7 @@ var tests = new List<(string Name, Func<Task> Run)>();
 void Test(string name, Action run) => tests.Add((name, () => { run(); return Task.CompletedTask; }));
 void AsyncTest(string name, Func<Task> run) => tests.Add((name, run));
 void Assert(bool value, string detail = "Assertion failed") { if (!value) throw new Exception(detail); }
+bool IsUtf8Text(Encoding? encoding) => encoding is UTF8Encoding && encoding.GetPreamble().Length == 0 && encoding.GetByteCount("\u53e6") == 3;
 void Throws<T>(Action action) where T : Exception { try { action(); } catch (T) { return; } throw new Exception("Expected " + typeof(T).Name); }
 RemoteSnapshot Fresh(bool systemd = true) => new()
 {
@@ -102,6 +111,13 @@ Test("SSH uses strict noninteractive arguments and loopback", () =>
     Assert(start.ArgumentList.Contains("BatchMode=yes") && start.ArgumentList.Contains("StrictHostKeyChecking=yes"));
     Assert(start.ArgumentList.Contains("C:\\key with space\\id"));
     Assert(!start.ArgumentList.Contains("StrictHostKeyChecking=no"));
+    // WinExe has no console: a null encoding is code page 0 and writes agent.py as GBK.
+    Assert(IsUtf8Text(start.StandardInputEncoding) && IsUtf8Text(start.StandardOutputEncoding) && IsUtf8Text(start.StandardErrorEncoding));
+    var interactive = SshCommand.Create(server, interactive: true);
+    Assert(interactive.StandardInputEncoding is null && interactive.StandardOutputEncoding is null && interactive.StandardErrorEncoding is null);
+    var custom = new ProcessStartInfo("ssh") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, StandardInputEncoding = Encoding.ASCII, StandardOutputEncoding = Encoding.ASCII, StandardErrorEncoding = Encoding.ASCII };
+    SshCommand.UseUtf8Text(custom);
+    Assert(ReferenceEquals(custom.StandardInputEncoding, Encoding.ASCII) && ReferenceEquals(custom.StandardOutputEncoding, Encoding.ASCII) && ReferenceEquals(custom.StandardErrorEncoding, Encoding.ASCII));
 });
 Test("SSH failure classification", () =>
 {
@@ -188,8 +204,16 @@ Test("user edits require explicit review and consent", () =>
 {
     var snapshot = Apply(Fresh(), LinuxDeploymentPlanner.Create(Fresh(), server));
     snapshot.Files[LinuxDeploymentPlanner.ShellPath] = new("# modified", DataFormat.Hash("# modified"));
-    Throws<InvalidOperationException>(() => LinuxDeploymentPlanner.Create(snapshot, server));
-    Assert(LinuxDeploymentPlanner.Create(snapshot, server, allowEdited: true).Changes.Count == 1);
+    Exception? blocked = null;
+    try { LinuxDeploymentPlanner.Create(snapshot, server); }
+    catch (InvalidOperationException error) { blocked = error; }
+    Assert(blocked is not null && blocked.Message.Contains("没有覆盖") && blocked.Message.Contains(LinuxDeploymentPlanner.ShellPath), blocked?.Message ?? "missing refusal");
+    string notice = RemoteEnvironmentSync.NotSynced(blocked!.Message);
+    Assert(notice.StartsWith("没有同步") && notice.Contains("无法联网") && notice.Contains("覆盖这段配置并保存") && !notice.StartsWith("连接已保存"), notice);
+    Assert(RemoteEnvironmentSync.FollowUp(blocked.Message) == "replace");
+    Assert(RemoteEnvironmentSync.FollowUp("Interrupted deployment found") == "recover");
+    var replaced = RemoteEnvironmentSync.Plan(snapshot, server with { RemotePort = 17891 }, replaceEdited: true);
+    Assert(replaced.Changes.Any(x => x.Path == LinuxDeploymentPlanner.ShellPath && x.Content!.Contains(":17891")), "explicit replace must rewrite the edited proxy file");
 });
 Test("damaged shell marker refuses ambiguous deletion", () =>
 {
@@ -308,10 +332,84 @@ AsyncTest("quoted SSH Include can contain a hash", async () =>
     }
     finally { Directory.Delete(directory, true); }
 });
+AsyncTest("SSH import fills only values the config specifies", async () =>
+{
+    string directory = Path.Combine(Path.GetTempPath(), "portkey-ssh-" + Guid.NewGuid());
+    Directory.CreateDirectory(Path.Combine(directory, "conf.d"));
+    try
+    {
+        await File.WriteAllTextAsync(Path.Combine(directory, "config"), """
+            User leading
+            Host exact other
+              User mine
+              IdentityFile "/keys/my key"
+            Host *
+              User star
+              Port 22
+              IdentityFile /keys/star
+            Host * !skip
+              Port 2200
+            Host skip
+              User skipped
+              Port 2222
+              IdentityFile /keys/skip
+            Include conf.d/more
+            Match host matched
+              IdentityFile /keys/match
+            Match exec "nope"
+              User unsafe
+            Host wild.*
+              User wild
+            Host tilde
+              IdentityFile ~/.ssh/id_ed25519
+            """);
+        await File.WriteAllTextAsync(Path.Combine(directory, "conf.d", "more"), "Host included\n  User from-include\n  Port 2201\n");
+        var reader = new SshConfigReader(new ProcessRunner());
+        string path = Path.Combine(directory, "config");
+        SpecifiedSshSettings Read(string alias) => reader.ReadSpecified(path, alias);
+        var exact = Read("exact");
+        Assert(exact.User == "mine" && exact.Port == 22 && exact.IdentityFile == "/keys/my key", $"{exact}");
+        var broad = Read("plain");
+        Assert(broad.User == "leading" && broad.Port == 22 && broad.IdentityFile == "/keys/star", $"{broad}");
+        var skipped = Read("skip");
+        Assert(skipped.User == "skipped" && skipped.Port == 2222 && skipped.IdentityFile == "/keys/skip", $"{skipped}");
+        var included = Read("included");
+        Assert(included.User == "from-include" && included.Port == 2201 && included.IdentityFile == "/keys/star", $"{included}");
+        var matched = Read("matched");
+        Assert(matched.User == "leading" && matched.IdentityFile == "/keys/match", $"{matched}");
+        var unsafeMatch = Read("unsafe");
+        Assert(unsafeMatch.User == "leading" && unsafeMatch.IdentityFile == "/keys/star", $"{unsafeMatch}");
+        var wild = Read("wild.example");
+        Assert(wild.User == "leading" && wild.Port == 22, $"{wild}");
+        var bare = Read("hostname-only");
+        Assert(bare.User == "leading" && bare.Port == 22, $"{bare}");
+        var tilde = Read("tilde");
+        string expected = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "id_ed25519");
+        Assert(tilde.IdentityFile == expected, tilde.IdentityFile ?? "");
+        var missing = new SshConfigReader(new ProcessRunner()).ReadSpecified(Path.Combine(directory, "absent"), "exact");
+        Assert(missing.User is null && missing.Port is null && missing.IdentityFile is null);
+        await File.WriteAllTextAsync(Path.Combine(directory, "bare"), "Host onlyname\n  HostName 10.0.0.1\n");
+        var bareHost = new SshConfigReader(new ProcessRunner()).ReadSpecified(Path.Combine(directory, "bare"), "onlyname");
+        Assert(bareHost.User is null && bareHost.Port is null && bareHost.IdentityFile is null, $"{bareHost}");
+        await File.WriteAllTextAsync(Path.Combine(directory, "explicit-port"), "Host named\n  Port 22\n");
+        var named = new SshConfigReader(new ProcessRunner()).ReadSpecified(Path.Combine(directory, "explicit-port"), "named");
+        Assert(named.User is null && named.Port == 22 && named.IdentityFile is null, $"{named}");
+    }
+    finally { Directory.Delete(directory, true); }
+});
 AsyncTest("actual OpenSSH resolves host using -G without a network connection", async () =>
 {
     var resolved = await new SshConfigReader(new ProcessRunner()).ResolveAsync(server with { Host = "portkey-test.invalid", SshPort = 2222 }, CancellationToken.None);
     Assert(resolved.HostName.Length > 0 && resolved.User.Length > 0 && resolved.Port == "2222");
+});
+AsyncTest("process pipes preserve UTF-8 text without a BOM", async () =>
+{
+    string text = "\u53e6\u4e00\u4e2a";
+    var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+    start.ArgumentList.Add("--echo-stdin-hex");
+    var result = await new ProcessRunner().RunAsync(start, text, TimeSpan.FromSeconds(10), CancellationToken.None);
+    Assert(result.ExitCode == 0, result.Error);
+    Assert(result.Output == Convert.ToHexString(Encoding.UTF8.GetBytes(text)), result.Output);
 });
 AsyncTest("process timeout terminates only the child created by the runner", async () =>
 {

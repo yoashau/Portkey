@@ -22,9 +22,15 @@ public sealed record ServerProfile
     public int RemotePort { get; init; } = 17890;
     public ProxyProtocol Protocol { get; init; } = ProxyProtocol.Mixed;
     public bool AutoConnect { get; init; }
-    public string CheckUrl { get; init; } = "https://www.gstatic.com/generate_204";
-    public int ExpectedStatus { get; init; } = 204;
-    public int TimeoutSeconds { get; init; } = 25;
+    // One switch for the remote shell and systemd environment. Saving rewrites only Portkey-owned lines.
+    public bool SyncRemoteEnvironment { get; init; } = true;
+    // Health checks use this fixed target. Saved profiles may still contain older values; the editor does not expose them.
+    public const string FixedCheckUrl = "https://www.gstatic.com/generate_204";
+    public const int FixedExpectedStatus = 204;
+    public const int FixedTimeoutSeconds = 25;
+    public string CheckUrl { get; init; } = FixedCheckUrl;
+    public int ExpectedStatus { get; init; } = FixedExpectedStatus;
+    public int TimeoutSeconds { get; init; } = FixedTimeoutSeconds;
 
     public void Validate()
     {

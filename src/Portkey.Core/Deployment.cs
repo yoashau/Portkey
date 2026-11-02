@@ -97,7 +97,7 @@ public static class LinuxDeploymentPlanner
             if (current.Content is not null)
             {
                 if (!previous.Files.TryGetValue(path, out var digest)) throw new InvalidOperationException($"~/{path} 已存在但没有可信 Portkey 所有权记录；请手动检查，未覆盖。");
-                if (current.Hash != digest && !allowEdited) throw new InvalidOperationException($"~/{path} 被手动编辑。请审阅内容，再显式允许替换已编辑的 Portkey 内容。");
+                if (current.Hash != digest && !allowEdited) throw new InvalidOperationException($"~/{path} 被手动改过，因此没有覆盖。新终端仍会使用这份旧内容。");
             }
             var content = uninstall ? null : path == ShellPath ? shell : snapshot.Systemd ? environment : null;
             // Keep an existing owned environment.d file when systemd is temporarily offline.
@@ -114,7 +114,7 @@ public static class LinuxDeploymentPlanner
             if (block is not null)
             {
                 if (!previous.Blocks.TryGetValue(path, out var hash)) throw new InvalidOperationException($"~/{path} 的代码块缺少所有权记录；请手动审阅。");
-                if (DataFormat.Hash(block) != hash && !allowEdited) throw new InvalidOperationException($"~/{path} 的 Portkey 代码块已被编辑；请显式允许替换后再预览。");
+                if (DataFormat.Hash(block) != hash && !allowEdited) throw new InvalidOperationException($"~/{path} 里的 Portkey 配置被手动改过，因此没有覆盖。新终端仍会使用这段旧内容。");
             }
             if (!uninstall && (path == ".bashrc" || path == login))
             {
@@ -170,5 +170,41 @@ public static class LinuxDeploymentPlanner
         if (after < text.Length && text[after] == '\r') after++;
         if (after < text.Length && text[after] == '\n') after++;
         return text[..begin] + text[after..];
+    }
+}
+
+public static class RemoteEnvironmentSync
+{
+    public static DeploymentPlan Plan(RemoteSnapshot snapshot, ServerProfile server, bool replaceEdited = false) =>
+        LinuxDeploymentPlanner.Create(snapshot, server, uninstall: !server.SyncRemoteEnvironment, allowEdited: replaceEdited);
+
+    public static bool IsProtectedEdit(string error) =>
+        error.Contains("被手动改过", StringComparison.Ordinal) || error.Contains("没有覆盖", StringComparison.Ordinal);
+
+    public static string Saved(ServerProfile server, bool changed, string? applyReport)
+    {
+        string result = !server.SyncRemoteEnvironment
+            ? (changed ? "连接已保存。已清除服务器上由 Portkey 写入的代理配置。" : "连接已保存。")
+            : (changed ? "连接已保存。服务器配置已同步。" : "连接已保存。服务器配置已与当前设置一致。");
+        if (applyReport is not null && (applyReport.Contains("未符合预期", StringComparison.Ordinal) || applyReport.Contains("验证失败", StringComparison.Ordinal)))
+            result += "环境验证未通过，详见连接日志。";
+        return result;
+    }
+
+    public static string FollowUp(string error) =>
+        error.Contains("Interrupted deployment", StringComparison.Ordinal) || error.Contains("中断事务", StringComparison.Ordinal) ? "recover"
+        : IsProtectedEdit(error) ? "replace" : "";
+
+    public static string NotSynced(string error)
+    {
+        if (FollowUp(error) == "recover")
+            return "没有同步服务器配置。上次写入已中断，新终端可能仍使用旧地址。请先选择「恢复中断的写入」，完成后再保存。本机连接设置已保存。";
+        string head = IsProtectedEdit(error)
+            ? "没有同步服务器配置，尚未生效。新终端仍使用旧地址，因此可能无法联网。"
+            : "没有同步服务器配置。新终端可能仍使用旧地址。";
+        string next = IsProtectedEdit(error)
+            ? " 若该改动并非有意保留，请选择「覆盖这段配置并保存」。此操作只替换 Portkey 写入的配置。"
+            : "";
+        return head + error + next + " 本机连接设置已保存，服务器上的自动代理配置未更改。";
     }
 }

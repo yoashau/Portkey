@@ -49,6 +49,19 @@ internal static class Program
             report.Add("PASS " + detail); Console.WriteLine(report[^1]);
         }
         T Named<T>(string name) where T : FrameworkElement => (T)panel.FindName(name);
+        bool HomeFullyVisible()
+        {
+            var logs = Descendants<Button>(panel).Single(x => AutomationProperties.GetName(x) == "连接日志");
+            double bottom = logs.TranslatePoint(new Point(0, logs.ActualHeight), panel).Y;
+            double top = Named<ComboBox>("ServerSelector").TranslatePoint(new Point(), panel).Y;
+            return top >= 0 && bottom <= panel.ActualHeight + 0.5 && Named<ScrollViewer>("PageScroll").ScrollableHeight == 0;
+        }
+        bool IsInside(DependencyObject child, DependencyObject parent)
+        {
+            for (var node = child; node is not null; node = VisualTreeHelper.GetParent(node))
+                if (ReferenceEquals(node, parent)) return true;
+            return false;
+        }
         void Pump(int milliseconds = 220)
         {
             var frame = new DispatcherFrame();
@@ -152,9 +165,36 @@ internal static class Program
                 Pump(320);
                 Check(Named<Border>("NavigationHeader").Visibility == Visibility.Collapsed, prefix + " home has no title bar");
                 double homeHeight = panel.ActualHeight;
+                Check(Math.Abs(panel.Height - 456) < 0.1 && Math.Abs(panel.MaxHeight - 456) < 0.1, prefix + " panel uses one constant 456 DIP height");
                 Check(!Descendants<TextBlock>(Named<Grid>("HomePage")).Any(x => x.Text == "Portkey"), prefix + " home has no branding header");
                 Check(Named<Border>("Surface").Clip is RectangleGeometry { RadiusX: 8, RadiusY: 8 }, prefix + " outer surface clips every child to rounded corners");
+                Check(Named<ScrollViewer>("PageScroll").VerticalScrollBarVisibility == ScrollBarVisibility.Disabled, prefix + " home does not show a scrollbar");
                 Check(Named<ScrollViewer>("PageScroll").ScrollableHeight == 0, prefix + " home fits without scrolling");
+                Check(HomeFullyVisible(), prefix + " home content stays fully visible");
+                var repeated = new ConnectionViewModel(new ServerProfile { Name = "lycoris", Host = "lycoris", User = "lycoris" }, new NoNetwork(), logger, () => { });
+                var distinct = new ConnectionViewModel(new ServerProfile { Name = "工作机", Host = "lycoris", User = "lycoris", RemotePort = 17891 }, new NoNetwork(), logger, () => { });
+                Check(repeated.EndpointLabel.Length == 0 && distinct.EndpointLabel == "lycoris@lycoris", prefix + " home repeats an SSH address only when the host differs from the server name");
+                model.Servers.Add(distinct); model.Selected = distinct; Pump();
+                Check(Descendants<TextBlock>(Named<Grid>("ConnectionCard")).Any(x => x.IsVisible && x.Text == "lycoris@lycoris") && HomeFullyVisible(), prefix + " a different SSH host stays visible without making home scroll");
+                model.Selected = connection; model.Servers.Remove(distinct); Pump();
+                double homeViewport = Named<ScrollViewer>("PageScroll").ActualHeight;
+                model.ShowMessage("没有同步服务器配置，尚未生效。新终端仍使用旧地址，因此可能无法联网。");
+                Pump();
+                var notice = Named<Border>("Notice");
+                Check(notice.IsVisible && !IsInside(notice, Named<ScrollViewer>("PageScroll")) && Math.Abs(Named<ScrollViewer>("PageScroll").ActualHeight - homeViewport) < 1 && HomeFullyVisible(), prefix + " notice overlays the home page without shrinking it or enabling scroll");
+                double noticeTop = notice.TranslatePoint(new Point(), panel).Y;
+                double noticeBottom = noticeTop + notice.ActualHeight;
+                double portBottom = Descendants<TextBlock>(Named<Grid>("ConnectionCard")).First(x => x.Text == profile.RemotePort.ToString()).TranslatePoint(new Point(0, Descendants<TextBlock>(Named<Grid>("ConnectionCard")).First(x => x.Text == profile.RemotePort.ToString()).ActualHeight), panel).Y;
+                double buttonTop = Named<Button>("ToggleButton").TranslatePoint(new Point(), panel).Y;
+                Check(noticeTop >= portBottom - 4 && noticeBottom <= buttonTop - 2 && !Descendants<Button>(notice).Any(), prefix + $" home notice is a sentence at a fixed position (ports={portBottom:0.#} notice={noticeTop:0.#}-{noticeBottom:0.#} button={buttonTop:0.#})");
+                double fixedNoticeTop = noticeTop;
+                model.SetSyncWarning("没有同步服务器配置，尚未生效。新终端仍使用旧地址，因此可能无法联网。");
+                model.ClearMessage();
+                Pump();
+                Check(notice.IsVisible && !Descendants<TextBlock>(Named<Grid>("ConnectionCard")).Any(x => x.IsVisible && x.Text.Contains("没有同步")) && HomeFullyVisible(), prefix + " persistent sync warning uses the overlay instead of expanding the status card");
+                if (prefix == "light") Capture(prefix + "-notice");
+                model.SetSyncWarning("");
+                Pump();
                 CheckCorners(Named<ComboBox>("ServerSelector"), prefix + " server selector has visibly rounded painted corners");
                 var selector = Named<ComboBox>("ServerSelector");
                 Check(Descendants<TextBlock>(selector).Any(x => x.Text == profile.Name) && !Descendants<TextBlock>(selector).Any(x => x.Text.Contains("ConnectionViewModel")), prefix + " server selector renders its display name through the native item template selector");
@@ -168,23 +208,39 @@ internal static class Program
                 Check(Descendants<TextBlock>(Named<Grid>("ConnectionCard")).Any(x => x.Text == profile.RemotePort.ToString()) && connection.EndpointLabel.Length == 0 && !Descendants<TextBlock>(Named<Grid>("ConnectionCard")).Any(x => x.IsVisible && x.Text == profile.Name), prefix + " home shows real ports without repeating the selected server name");
                 Capture(prefix + "-home");
                 Click("连接设置");
+                model.ShowMessage("正在处理");
+                Pump();
+                var editorNotice = Named<Border>("Notice");
+                Check(editorNotice.IsVisible && Math.Abs(editorNotice.TranslatePoint(new Point(), panel).Y - fixedNoticeTop) < 1 && Descendants<TextBlock>(editorNotice).Any(x => x.Text == "正在处理") && !Descendants<Button>(editorNotice).Any(x => (x.Content?.ToString() ?? "").Contains("取消")), prefix + " processing notice stays in the same position and has no cancel action");
+                model.ClearMessage();
+                Pump();
                 CheckCorners(Named<TextBox>("NameInput"), prefix + " editable text field has rounded painted corners");
                 Named<TextBox>("NameInput").Focus(); Pump();
                 CheckCorners(Named<TextBox>("NameInput"), prefix + " focused text field retains rounded painted corners");
                 CheckCorners(Named<ComboBox>("HostAliases"), prefix + " alias selector has rounded painted corners");
-                var expander = Descendants<Expander>(Named<StackPanel>("EditorPage")).Single();
-                var reveal = (Grid)expander.Template.FindName("Reveal", expander);
-                var body = (Border)expander.Template.FindName("Body", expander);
-                double beforeExpandOffset = Named<ScrollViewer>("PageScroll").VerticalOffset;
-                var expansionClock = Stopwatch.StartNew();
-                expander.IsExpanded = true;
-                report.Add($"INPUT {prefix} expand handler={expansionClock.Elapsed.TotalMilliseconds:F2}ms");
-                Pump(55);
-                if (SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast)
-                    Check(reveal.ActualHeight > 0 && Named<ScrollViewer>("PageScroll").VerticalOffset > beforeExpandOffset, prefix + " disclosure height and page scroll advance together during expansion");
-                Pump(180);
-                Check(double.IsNaN(reveal.Height) && body.IsVisible && expander.TranslatePoint(new Point(), Named<ScrollViewer>("PageScroll")).Y >= -1, prefix + " expanded form is fully revealed with its header in view");
-                Check(((ToggleButton)expander.Template.FindName("HeaderSite", expander)).Style == ((ToggleButton)Named<ComboBox>("ProtocolInput").Template.FindName("DropDownToggle", Named<ComboBox>("ProtocolInput"))).Style, prefix + " expander and protocol selector share the same disclosure chrome");
+                var editor = Named<StackPanel>("EditorPage");
+                Check(!Descendants<Expander>(editor).Any() && panel.FindName("HealthOptions") is null && panel.FindName("CheckUrlInput") is null && panel.FindName("StatusInput") is null && panel.FindName("TimeoutInput") is null, prefix + " health check is fixed and has no custom form");
+                Check(Descendants<TextBlock>(editor).Count(x => x.Text == "（可选）") == 3, prefix + " user, SSH port and identity are marked optional");
+                Check(!Descendants<TextBlock>(editor).Any(x => (x.Text ?? "").Contains("不要填 SSH 的 22") || (x.Text ?? "").Contains("已经打开的终端不会变")), prefix + " long explanations are not inline");
+                foreach (var help in new[] { "SSH 主机说明", "SSH 用户说明", "SSH 端口说明", "私钥路径说明", "本地代理端口说明", "服务器端口说明", "代理协议说明", "启动时自动连接说明", "新终端代理说明" })
+                {
+                    var mark = Descendants<ContentControl>(editor).Single(x => AutomationProperties.GetName(x) == help);
+                    Check(!mark.Focusable && !mark.IsTabStop && mark.ToolTip is string { Length: > 12 } && mark.ActualHeight <= 18 && mark.ActualWidth <= 18 && Descendants<TextBlock>(mark).Any(x => x.Text == "?"), prefix + " " + help + " is a non-focusable hover help mark");
+                }
+                Check(Named<TextBox>("RemotePortInput").TranslatePoint(new Point(0, Named<TextBox>("RemotePortInput").ActualHeight), panel).Y < Named<ComboBox>("ProtocolInput").TranslatePoint(new Point(), panel).Y
+                    && Named<ComboBox>("ProtocolInput").TranslatePoint(new Point(), panel).Y < Named<CheckBox>("AutoInput").TranslatePoint(new Point(), panel).Y
+                    && Named<CheckBox>("AutoInput").TranslatePoint(new Point(), panel).Y < Named<CheckBox>("SyncInput").TranslatePoint(new Point(), panel).Y,
+                    prefix + " protocol and automatic options are grouped below the address fields");
+                foreach (var box in new[] { Named<CheckBox>("AutoInput"), Named<CheckBox>("SyncInput") })
+                {
+                    box.ApplyTemplate();
+                    var mark = (FrameworkElement)box.Template.FindName("Box", box);
+                    var content = (FrameworkElement)box.Template.FindName("Content", box);
+                    double markCenter = mark.TranslatePoint(new Point(0, mark.ActualHeight / 2), panel).Y;
+                    double textCenter = content.TranslatePoint(new Point(0, content.ActualHeight / 2), panel).Y;
+                    var label = Descendants<TextBlock>(content).First();
+                    Check(box.FontSize == 15 && label.FontSize == 15 && label.TextWrapping == TextWrapping.NoWrap && Math.Abs(markCenter - textCenter) < 1, prefix + " " + box.Name + " label is 15 DIP and centered on its box");
+                }
                 foreach (var field in Descendants<TextBox>(Named<StackPanel>("EditorPage")))
                     CheckCorners(field, prefix + " " + field.Name + " uses rounded painted input corners");
                 CheckCorners(Named<ComboBox>("ProtocolInput"), prefix + " protocol selector uses rounded painted corners");
@@ -212,31 +268,15 @@ internal static class Program
                 Check(Math.Abs(panel.ActualHeight - homeHeight) < 1, prefix + " editor keeps home container height");
                 Capture(prefix + "-editor-bottom");
                 scroll.ScrollToTop(); Pump(); Capture(prefix + "-editor");
-                expander.IsExpanded = false; Pump(40); expander.IsExpanded = true; Pump(180);
-                Check(double.IsNaN(reveal.Height) && body.IsVisible, prefix + " rapid collapse and reopen ends fully expanded");
-                expander.IsExpanded = false; Pump(180);
-                Check(reveal.ActualHeight == 0 && !body.IsVisible, prefix + " collapsed disclosure leaves no focusable hidden fields or delayed height");
                 scroll.ScrollToVerticalOffset(Math.Min(120, scroll.ScrollableHeight)); Pump();
                 double manualOffset = scroll.VerticalOffset;
                 scroll.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = Mouse.PreviewMouseDownEvent }); Pump();
                 Check(Math.Abs(scroll.VerticalOffset - manualOffset) < 1, prefix + " manual interaction cancels automatic scrolling without jumping backwards");
                 Back();
-                Click("服务器配置");
-                Named<TextBox>("PreviewText").Text = "用户：example\nHOME：/home/example\n\n配置已符合预期，无文件需要修改。\n\n此内容仅供组件排版测试。";
-                Pump(); Capture(prefix + "-deployment");
-                Check(Math.Abs(panel.ActualHeight - homeHeight) < 1, prefix + " deployment keeps home container height");
-                Check(Descendants<Border>(Named<TextBox>("PreviewText")).Any(x => x.CornerRadius.TopLeft == 8), prefix + " preview container has 8 DIP rounded corners");
-                Check(scroll.ScrollableHeight == 0, prefix + " default deployment page needs only the preview's own scrolling");
-                Check(Named<StackPanel>("DeployActions").IsVisible, prefix + " deployment confirmation stays outside scrolling content");
-                CheckCorners(Descendants<Button>(Named<StackPanel>("DeployPage")).First(), prefix + " secondary action button matches field corner radius");
-                double previewWidth = Named<TextBox>("PreviewText").ActualWidth;
-                var backup = Descendants<Expander>(Named<StackPanel>("DeployPage")).Single();
-                Check(scroll.VerticalScrollBarVisibility == ScrollBarVisibility.Visible && scroll.ComputedVerticalScrollBarVisibility == Visibility.Visible, prefix + " deployment reserves its scrollbar before expansion");
-                backup.IsExpanded = true; Pump();
-                Check(scroll.ScrollableHeight > 0 && Math.Abs(Named<TextBox>("PreviewText").ActualWidth - previewWidth) < 0.1, prefix + " expanding backup tools introduces no horizontal layout jump");
-                CheckCorners(Named<TextBox>("PreviewText"), prefix + " deployment document has rounded painted corners");
-                Capture(prefix + "-deployment-expanded");
-                backup.IsExpanded = false; Pump();
+                Click("连接设置");
+                Check(!Descendants<Button>(panel).Any(x => AutomationProperties.GetName(x) == "服务器配置"), prefix + " server setup is not a separate page");
+                Check(Named<CheckBox>("SyncInput").IsChecked == true && Named<Button>("FollowUpButton").Visibility != Visibility.Visible, prefix + " sync is on by default and overwrite stays hidden until sync is blocked");
+                Check(Math.Abs(panel.Height - 456) < 0.1 && Math.Abs(panel.ActualHeight - homeHeight) < 1, prefix + " editor returns to the same constant 456 DIP panel");
                 Back(); Click("连接日志");
                 Named<TextBox>("LogsText").Text = string.Join('\n', Enumerable.Range(0, 40).Select(x => $"20:05:{x:00} [UI fixture] 布局验证日志，不代表网络测试结果"));
                 Pump(); Check(Math.Abs(panel.ActualHeight - homeHeight) < 1 && scroll.ScrollableHeight == 0, prefix + " logs fill the fixed-height container without nested page scrolling"); Capture(prefix + "-logs"); Back();
@@ -289,7 +329,7 @@ internal static class Program
             model.Servers.Clear();
             typeof(TrayPanel).GetMethod("UpdateEmptyState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(panel, null);
             Check(Named<TextBlock>("EmptyText").IsVisible && !Named<ComboBox>("ServerSelector").IsVisible && !Named<Grid>("ConnectionActions").IsVisible, "empty state hides server-specific controls");
-            Check(Named<Button>("AddServerButton").IsVisible && !Named<Button>("DeploymentNav").IsEnabled, "empty home provides a primary add action and disables deployment without a server");
+            Check(Named<Button>("AddServerButton").IsVisible && !Descendants<Button>(panel).Any(x => AutomationProperties.GetName(x) == "服务器配置"), "empty home provides a primary add action and has no separate server page");
             Check(Named<Border>("EmptyState").BorderThickness == new Thickness(0) && !Descendants<Button>(panel).Any(x => AutomationProperties.GetName(x) == "启动设置"), "empty home has no large framed box or Windows startup navigation");
             Capture("dark-empty");
             Click("添加服务器");

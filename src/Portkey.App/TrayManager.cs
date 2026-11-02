@@ -201,7 +201,7 @@ internal sealed class TrayManager : Forms.NativeWindow, IDisposable
         void Add(string title, Func<Task> action)
         {
             var item = new MenuItem { Header = title };
-            item.Click += async (_, _) => { try { await action(); } catch (Exception error) { model.Message = error.Message; model.Logger.Write("menu", error.Message); } };
+            item.Click += async (_, _) => { try { await action(); } catch (Exception error) { model.ShowMessage(error.Message); model.Logger.Write("menu", error.Message); } };
             menu.Items.Add(item);
         }
         Add("显示 Portkey", () => { Show(); return Task.CompletedTask; });
