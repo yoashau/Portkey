@@ -12,7 +12,7 @@ internal static class Program
     {
         string output = Path.GetFullPath(args.Single());
         int[] sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256];
-        foreach (var (name, color) in new[] { ("Portkey", Color.FromRgb(32, 32, 32)), ("Portkey.light", Colors.White) })
+        foreach (var (name, color) in new[] { ("Portkey", TrayIcon.LightForeground), ("Portkey.light", Colors.White) })
         {
             byte[] Png(int pixels)
             {

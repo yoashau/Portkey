@@ -183,9 +183,17 @@ internal sealed class TrayManager : Forms.NativeWindow, IDisposable
     private void ShowMenu()
     {
         panel.Hide();
-        var handle = PreparePanelHandle(IconBounds());
+        var anchor = IconBounds();
+        var handle = PreparePanelHandle(anchor);
         panel.ApplyTheme();
-        menu = new ContextMenu { Placement = PlacementMode.Custom, PlacementTarget = panel, Style = (Style)panel.FindResource("TrayContextMenu") };
+        // A never-shown panel has no connected visual, even after EnsureHandle().
+        // Anchor directly in screen pixels so WPF can open the menu at tray-only startup.
+        menu = new ContextMenu
+        {
+            Placement = PlacementMode.Custom,
+            PlacementRectangle = new System.Windows.Rect(anchor.X, anchor.Y, anchor.Width, anchor.Height),
+            Style = (Style)panel.FindResource("TrayContextMenu")
+        };
         menu.CustomPopupPlacementCallback = (size, _, _) =>
         {
             var bounds = IconBounds();
@@ -194,8 +202,7 @@ internal sealed class TrayManager : Forms.NativeWindow, IDisposable
             // WPF's custom-placement callback uses device pixels, including its return offset.
             var pixels = new System.Drawing.Size((int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height));
             var placement = FlyoutPlacement.Calculate(bounds, screen.Bounds, screen.WorkingArea, pixels, scale, centerOnIcon: false);
-            var origin = panel.PointToScreen(new System.Windows.Point());
-            var point = new System.Windows.Point(placement.X - origin.X, placement.Y - origin.Y);
+            var point = new System.Windows.Point(placement.X - anchor.X, placement.Y - anchor.Y);
             return [new CustomPopupPlacement(point, PopupPrimaryAxis.None)];
         };
         void Add(string title, Func<Task> action)

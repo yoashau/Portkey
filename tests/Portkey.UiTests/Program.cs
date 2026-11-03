@@ -102,7 +102,21 @@ internal static class Program
         }
         try
         {
-            foreach (var (name, color) in new[] { ("Portkey", Color.FromRgb(32, 32, 32)), ("Portkey.light", Colors.White) })
+            using (var tray = new TrayManager(panel, model, () => Task.CompletedTask))
+            {
+                for (int attempt = 1; attempt <= 2; attempt++)
+                {
+                    // Exercise the shell's version-4 WM_CONTEXTMENU callback before any panel.Show().
+                    SendMessageW(tray.Handle, 0x8001, IntPtr.Zero, new IntPtr((1 << 16) | 0x7b));
+                    Pump(320);
+                    var context = (ContextMenu?)typeof(TrayManager).GetField("menu", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(tray);
+                    Check(context is { IsOpen: true } && PresentationSource.FromVisual(context) is HwndSource source && IsWindowVisible(source.Handle)
+                        && context.ActualWidth > 0 && context.ActualHeight > 0 && !panel.IsVisible && !panel.IsLoaded,
+                        $"tray right-click {attempt} displays a native menu before the panel has ever been shown");
+                    context!.IsOpen = false; Pump();
+                }
+            }
+            foreach (var (name, color) in new[] { ("Portkey", TrayIcon.LightForeground), ("Portkey.light", Colors.White) })
             {
                 var decoder = new IconBitmapDecoder(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", name + ".ico")), BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
                 int[] sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256];
@@ -361,6 +375,8 @@ internal static class Program
     [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr value);
     [DllImport("user32.dll")] private static extern int GetWindowRgn(IntPtr window, IntPtr region);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out NativeRect bounds);
+    [DllImport("user32.dll")] private static extern IntPtr SendMessageW(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
     private sealed class NoNetwork : IConnectionBackend
     {
         public Task<bool> IsLocalReadyAsync(ServerProfile s, CancellationToken ct) => throw new InvalidOperationException("UI component test must not connect.");

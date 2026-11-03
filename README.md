@@ -44,3 +44,5 @@
 ## 构建
 
 在 Windows 上运行 `scripts/build.ps1`。产物是 `artifacts/win-x64/Portkey.exe`，该目录不进入版本库。测试记录见 `docs/TESTING.md`。
+
+应用图标与托盘共用系统字形渲染器，保持形状、比例、留白和浅色前景色一致。运行 `scripts/make-icons.ps1` 可重新生成应用图标资源。

@@ -11,6 +11,7 @@ namespace Portkey.App;
 internal static class TrayIcon
 {
     internal const char Link = '\uE71B';
+    internal static readonly Color LightForeground = Color.FromArgb(228, 0, 0, 0);
     private static readonly Typeface Typeface = new(new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
 
     // The system icon font supplies the same 16-epx monoline construction used
@@ -36,9 +37,10 @@ internal static class TrayIcon
         return image;
     }
 
-    internal static IntPtr Create(int pixels, bool light)
+    internal static IntPtr Create(int pixels, bool dark)
     {
-        var color = SystemParameters.HighContrast ? SystemColors.WindowTextColor : light ? Colors.White : Color.FromRgb(32, 32, 32);
+        // Match the shell's primary foreground; taskbar tint shows through light-mode icons.
+        var color = SystemParameters.HighContrast ? SystemColors.WindowTextColor : dark ? Colors.White : LightForeground;
         var image = RenderImage(Link, pixels, color);
         int stride = pixels * 4;
         var buffer = new byte[stride * pixels];
