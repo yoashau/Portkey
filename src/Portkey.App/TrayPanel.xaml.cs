@@ -21,7 +21,7 @@ public partial class TrayPanel : Window
     private bool deleteArmed;
     private DateTimeOffset deleteArmedAt;
     private int presentationVersion;
-    private (bool Dark, bool Transparency, bool Contrast, IntPtr Window)? appliedTheme;
+    private (bool Dark, bool Contrast, IntPtr Window)? appliedTheme;
     private static readonly DependencyProperty PageOffsetProperty = DependencyProperty.Register("PageOffset", typeof(double), typeof(TrayPanel), new PropertyMetadata(0.0, (d, e) => ((TrayPanel)d).PageScroll.ScrollToVerticalOffset((double)e.NewValue)));
     private readonly TranslateTransform surfaceTranslation = new();
     public bool IsDismissing { get; private set; }
@@ -30,13 +30,13 @@ public partial class TrayPanel : Window
         this.model = model;
         InitializeComponent();
         Surface.RenderTransform = surfaceTranslation;
-        surfaceTranslation.Changed += (_, _) => UpdateSlideClip();
-        Surface.SizeChanged += (_, _) => Surface.Clip = new RectangleGeometry(new Rect(Surface.RenderSize), 8, 8);
+        SurfaceContent.SizeChanged += (_, _) => SurfaceContent.Clip = new RectangleGeometry(new Rect(SurfaceContent.RenderSize), 22, 22);
         DataContext = model;
         ProtocolInput.ItemsSource = Enum.GetValues<ProxyProtocol>();
         ProtocolInput.SelectedIndex = 0;
         PageScroll.PreviewMouseWheel += (_, _) => StopPageScroll();
         PageScroll.PreviewMouseDown += (_, _) => StopPageScroll();
+        PageScroll.SizeChanged += (_, _) => UpdatePageScrolling();
         model.SelectionChanged += ClearPlan;
         model.StatusChanged += UpdateEmptyState;
         UpdateEmptyState();
@@ -51,25 +51,32 @@ public partial class TrayPanel : Window
         bool dark = Application.Current.ThemeMode.Equals(ThemeMode.Dark) ||
             (Application.Current.ThemeMode.Equals(ThemeMode.System) && registry?.GetValue("AppsUseLightTheme") is int value && value == 0);
 #pragma warning restore WPF0001
-        bool transparency = registry?.GetValue("EnableTransparency") is not int enabled || enabled != 0;
         var handle = new WindowInteropHelper(this).Handle;
-        var theme = (dark, transparency, SystemParameters.HighContrast, handle);
+        var theme = (dark, SystemParameters.HighContrast, handle);
         if (!force && appliedTheme == theme) return;
         appliedTheme = theme;
-        bool acrylic = NativeWindowStyle.Apply(handle, dark, transparency && !SystemParameters.HighContrast);
+        NativeWindowStyle.Apply(handle);
         void Brush(string name, string color) => Application.Current.Resources[name] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
-        Brush("PaneBrush", acrylic ? (dark ? "#14000000" : "#10FFFFFF") : (dark ? "#282828" : "#F9F9F9"));
-        Brush("MenuBrush", dark ? "#282828" : "#F9F9F9");
-        Brush("TextBrush", dark ? "#F5F5F5" : "#202020");
-        Brush("SecondaryTextBrush", dark ? "#D0D0D0" : "#606060");
-        Brush("BorderBrush", dark ? "#28FFFFFF" : "#26000000");
-        Brush("HoverBrush", dark ? "#0FFFFFFF" : "#09000000");
-        Brush("PressedBrush", dark ? "#18FFFFFF" : "#14000000");
-        Brush("ControlBrush", dark ? "#0FFFFFFF" : "#70FFFFFF");
-        Brush("ThumbBrush", dark ? "#B0FFFFFF" : "#80000000");
-        Brush("AccentBrush", dark ? "#99CFFF" : "#0067C0");
-        Brush("AccentTextBrush", dark ? "#15212B" : "#FFFFFF");
-        Brush("NoticeWarningBrush", "#D9A441");
+        Brush("PaneBrush", dark ? "#1C1B19" : "#F7F4EF");
+        Brush("MenuBrush", dark ? "#2C2A28" : "#FFFBF7");
+        Brush("TextBrush", dark ? "#F3EEE7" : "#26231F");
+        Brush("SecondaryTextBrush", dark ? "#BDB6AE" : "#706B65");
+        Brush("BorderBrush", dark ? "#1AF3EEE7" : "#1C41382D");
+        Brush("HoverBrush", dark ? "#17F3EEE7" : "#1448301C");
+        Brush("PressedBrush", dark ? "#29F3EEE7" : "#2948301C");
+        Brush("FocusBrush", dark ? "#2ED0AE7C" : "#24A47A43");
+        Brush("TextSelectionBrush", dark ? "#4D7BA4C7" : "#38638EB4");
+        Brush("ControlBrush", dark ? "#0FFFFFFF" : "#B8FFFFFF");
+        Brush("FieldHoverBrush", dark ? "#2EFFFFFF" : "#2E48301C");
+        Brush("FieldFocusBrush", dark ? "#1CFFFFFF" : "#FAFFFFFF");
+        Brush("ThumbBrush", dark ? "#75EBE1D2" : "#704C4236");
+        Brush("AccentBrush", dark ? "#71937B" : "#6B8772");
+        Brush("PrimaryBrush", dark ? "#71937B" : "#526D59");
+        Brush("AccentTextBrush", dark ? "#101A13" : "#FFFFFF");
+        Brush("SwitchTrackBrush", dark ? "#484644" : "#D0CCC7");
+        Brush("SwitchThumbBrush", dark ? "#F3EEE7" : "#FFFFFF");
+        Brush("DangerBrush", dark ? "#DCB69F" : "#92553F");
+        Brush("NoticeWarningBrush", dark ? "#DCB69F" : "#92553F");
         if (SystemParameters.HighContrast)
         {
             var resources = Application.Current.Resources;
@@ -77,9 +84,15 @@ public partial class TrayPanel : Window
             resources["TextBrush"] = resources["SecondaryTextBrush"] = SystemColors.WindowTextBrush;
             resources["BorderBrush"] = resources["ThumbBrush"] = SystemColors.WindowTextBrush;
             resources["HoverBrush"] = resources["PressedBrush"] = resources["ControlBrush"] = SystemColors.ControlBrush;
-            resources["AccentBrush"] = SystemColors.HighlightBrush;
+            resources["AccentBrush"] = resources["PrimaryBrush"] = SystemColors.HighlightBrush;
             resources["AccentTextBrush"] = SystemColors.HighlightTextBrush;
-            resources["NoticeWarningBrush"] = SystemColors.WindowTextBrush;
+            resources["NoticeWarningBrush"] = resources["DangerBrush"] = SystemColors.WindowTextBrush;
+            resources["FieldHoverBrush"] = SystemColors.WindowTextBrush;
+            resources["FieldFocusBrush"] = SystemColors.WindowBrush;
+            resources["FocusBrush"] = SystemColors.ControlBrush;
+            resources["TextSelectionBrush"] = SystemColors.HighlightBrush;
+            resources["SwitchTrackBrush"] = SystemColors.ControlDarkBrush;
+            resources["SwitchThumbBrush"] = SystemColors.HighlightTextBrush;
         }
     }
 
@@ -101,7 +114,7 @@ public partial class TrayPanel : Window
         UpdateFollowUp();
         LogActions.Visibility = page == LogsPage ? Visibility.Visible : Visibility.Collapsed;
         ActionFooter.Visibility = page == HomePage ? Visibility.Collapsed : Visibility.Visible;
-        PageScroll.VerticalScrollBarVisibility = page == HomePage ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Visible;
+        UpdatePageScrolling();
         PageScroll.ScrollToTop();
         model.ClearMessage();
         if (SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast)
@@ -109,6 +122,22 @@ public partial class TrayPanel : Window
             // Keep clicked content visible immediately; a short translation supplies continuity.
             PageTranslation.BeginAnimation(TranslateTransform.XProperty, Animation(page == HomePage ? -6 : 6, 0, 100));
         }
+    }
+    private void UpdatePageScrolling()
+    {
+        bool home = HomePage.Visibility == Visibility.Visible;
+        double minimum = HomePage.MinHeight + HomePage.Margin.Top + HomePage.Margin.Bottom;
+        PageScroll.VerticalScrollBarVisibility = home
+            ? PageScroll.ActualHeight > 0 && PageScroll.ActualHeight < minimum ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled
+            : ScrollBarVisibility.Visible;
+    }
+    private void BringHelpRowIntoView(object sender, RequestBringIntoViewEventArgs e)
+    {
+        if (sender is not FrameworkElement help || !ReferenceEquals(e.TargetObject, help) || VisualTreeHelper.GetParent(help) is not FrameworkElement row) return;
+        // Scroll the entire labeled row into view, not just the smaller help
+        // button; otherwise the switch or label can remain below the footer.
+        e.Handled = true;
+        row.BringIntoView();
     }
     private void StopPageScroll()
     {
@@ -124,12 +153,6 @@ public partial class TrayPanel : Window
         return animation;
     }
     private double SlideHeight => Math.Min(Height, MaxHeight);
-    private void UpdateSlideClip()
-    {
-        var handle = new WindowInteropHelper(this).Handle;
-        if (handle != IntPtr.Zero)
-            NativeWindowStyle.SetSlideClip(handle, surfaceTranslation.Y, Width, SlideHeight, VisualTreeHelper.GetDpi(this).DpiScaleY);
-    }
     public void AnimateOpen()
     {
         double from = IsVisible ? surfaceTranslation.Y : SlideHeight;
@@ -139,11 +162,9 @@ public partial class TrayPanel : Window
         bool animate = SystemParameters.ClientAreaAnimation && !SystemParameters.HighContrast;
         // Establish the hidden first frame before the animation clock ticks.
         surfaceTranslation.Y = animate ? from : 0;
-        UpdateSlideClip();
         if (!animate) return;
-        // Clip the native backdrop along with the content, so no empty acrylic box appears first.
+        // Only the alpha surface moves; there is no separate native backdrop to expose.
         surfaceTranslation.BeginAnimation(TranslateTransform.YProperty, Animation(from, 0, 250));
-        UpdateSlideClip();
     }
     public void Dismiss()
     {

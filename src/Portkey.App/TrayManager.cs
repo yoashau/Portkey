@@ -30,17 +30,24 @@ internal sealed class TrayManager : Forms.NativeWindow, IDisposable
         this.panel = panel; this.model = model; this.exit = exit;
         mouseCallback = OnMouse;
         CreateHandle(new Forms.CreateParams { Caption = "Portkey.Tray", Style = unchecked((int)0x80000000), ExStyle = 0x80 });
-        panel.Deactivated += (_, _) =>
-        {
-            var mouse = Forms.Cursor.Position;
-            var bounds = IconBounds();
-            GetWindowThreadProcessId(GetForegroundWindow(), out uint foregroundProcess);
-            if (!presenting && !bounds.Contains(mouse.X, mouse.Y) && menu?.IsOpen != true && foregroundProcess != Environment.ProcessId) panel.Dismiss();
-        };
+        panel.Deactivated += OnPanelDeactivated;
         model.StatusChanged += RefreshStatus;
-        panel.IsVisibleChanged += (_, _) => UpdateMouseHook();
-        panel.SizeChanged += (_, _) => { if (panel.IsVisible && !presenting) PositionPanel(); };
+        panel.IsVisibleChanged += OnPanelVisibleChanged;
+        panel.SizeChanged += OnPanelSizeChanged;
         Refresh(add: true);
+    }
+    private void OnPanelDeactivated(object? sender, EventArgs args)
+    {
+        if (disposing) return;
+        var mouse = Forms.Cursor.Position;
+        var bounds = IconBounds();
+        GetWindowThreadProcessId(GetForegroundWindow(), out uint foregroundProcess);
+        if (!presenting && !bounds.Contains(mouse.X, mouse.Y) && menu?.IsOpen != true && foregroundProcess != Environment.ProcessId) panel.Dismiss();
+    }
+    private void OnPanelVisibleChanged(object sender, DependencyPropertyChangedEventArgs args) => UpdateMouseHook();
+    private void OnPanelSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        if (!disposing && panel.IsVisible && !presenting) PositionPanel();
     }
     private void RefreshStatus()
     {
@@ -148,7 +155,8 @@ internal sealed class TrayManager : Forms.NativeWindow, IDisposable
             var handle = PreparePanelHandle(bounds);
             double scale = GetDpiForWindow(handle) / 96.0;
             panel.Width = Math.Min(380, work.Width / scale - 16);
-            panel.MaxHeight = Math.Max(160, Math.Min(panel.Height, work.Height / scale - 24));
+            panel.MaxHeight = Math.Max(160, Math.Min(456, work.Height / scale - 24));
+            panel.Height = 456;
             panel.ApplyTheme();
             // Set the final HWND bounds while hidden, before its first visible frame.
             PositionPanel();
@@ -225,6 +233,9 @@ internal sealed class TrayManager : Forms.NativeWindow, IDisposable
         disposing = true;
         UpdateMouseHook();
         model.StatusChanged -= RefreshStatus;
+        panel.Deactivated -= OnPanelDeactivated;
+        panel.IsVisibleChanged -= OnPanelVisibleChanged;
+        panel.SizeChanged -= OnPanelSizeChanged;
         menu?.SetCurrentValue(ContextMenu.IsOpenProperty, false);
         var data = Data(icon); Shell_NotifyIconW(2, ref data);
         if (icon != IntPtr.Zero) DestroyIcon(icon);
@@ -265,35 +276,27 @@ internal sealed class TrayManager : Forms.NativeWindow, IDisposable
 
 internal static class NativeWindowStyle
 {
-    public static bool Apply(IntPtr window, bool dark, bool transparency)
+    public static void Apply(IntPtr window)
     {
-        if (window == IntPtr.Zero) return false;
-        int value = dark ? 1 : 0; DwmSetWindowAttribute(window, 20, ref value, 4);
+        if (window == IntPtr.Zero) return;
+        // Like Intext's smooth frame, let one per-pixel alpha surface own the rim.
+        // Native rounding, border and acrylic would paint a second edge behind it.
+        int value = 1; // DWMNCRP_DISABLED.
+        DwmSetWindowAttribute(window, 2, ref value, 4);
         if (Environment.OSVersion.Version.Build >= 22000)
         {
-            value = 2; DwmSetWindowAttribute(window, 33, ref value, 4);
+            value = 1; // DWMWCP_DONOTROUND.
+            DwmSetWindowAttribute(window, 33, ref value, 4);
+            value = unchecked((int)0xFFFFFFFE); // DWMWA_COLOR_NONE.
+            DwmSetWindowAttribute(window, 34, ref value, 4);
         }
-        bool acrylic = false;
         if (Environment.OSVersion.Version.Build >= 22621)
         {
-            value = transparency ? 3 : 1; // DWMSBT_TRANSIENTWINDOW / DWMSBT_NONE.
-            acrylic = DwmSetWindowAttribute(window, 38, ref value, 4) == 0 && transparency;
+            value = 1; // DWMSBT_NONE.
+            DwmSetWindowAttribute(window, 38, ref value, 4);
         }
-        if (HwndSource.FromHwnd(window)?.CompositionTarget is { } target) target.BackgroundColor = System.Windows.Media.Colors.Transparent;
-        return acrylic;
+        if (HwndSource.FromHwnd(window)?.CompositionTarget is { } target)
+            target.BackgroundColor = System.Windows.Media.Colors.Transparent;
     }
-    public static void SetSlideClip(IntPtr window, double offset, double width, double height, double scale)
-    {
-        if (offset <= 0) { SetWindowRgn(window, IntPtr.Zero, true); return; }
-        int y = (int)Math.Ceiling(offset * scale);
-        int w = (int)Math.Ceiling(width * scale), h = (int)Math.Ceiling(height * scale);
-        int radius = (int)Math.Round(16 * scale);
-        var region = CreateRoundRectRgn(0, y, w + 1, h + y + 1, radius, radius);
-        // Windows owns the region after success; on failure it is still ours.
-        if (region != IntPtr.Zero && SetWindowRgn(window, region, true) == 0) DeleteObject(region);
-    }
-    [DllImport("gdi32.dll")] private static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
-    [DllImport("gdi32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool DeleteObject(IntPtr value);
-    [DllImport("user32.dll")] private static extern int SetWindowRgn(IntPtr window, IntPtr region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
 }
