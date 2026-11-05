@@ -210,6 +210,42 @@ internal static class Program
                 Check(Named<ScrollViewer>("PageScroll").VerticalScrollBarVisibility == ScrollBarVisibility.Disabled, prefix + " home does not show a scrollbar");
                 Check(Named<ScrollViewer>("PageScroll").ScrollableHeight == 0, prefix + " home fits without scrolling");
                 Check(HomeFullyVisible(), prefix + " home content stays fully visible");
+                var flow = Named<Viewbox>("PortFlow");
+                bool FlowFits()
+                {
+                    var local = Named<StackPanel>("LocalEndpoint");
+                    var remote = Named<StackPanel>("RemoteEndpoint");
+                    double flowLeft = flow.TranslatePoint(new Point(), panel).X;
+                    return local.TranslatePoint(new Point(local.ActualWidth, 0), panel).X <= flowLeft + 0.5
+                        && flowLeft + flow.ActualWidth <= remote.TranslatePoint(new Point(), panel).X + 0.5;
+                }
+                var strands = Descendants<System.Windows.Shapes.Path>(flow).ToArray();
+                Check(flow.IsVisible && FlowFits() && strands.Length == 2,
+                    prefix + " port connection shows two curves between the endpoint labels");
+                bool StrandsMeet(double fraction)
+                {
+                    strands[0].Data.GetFlattenedPathGeometry().GetPointAtFractionLength(fraction, out var first, out _);
+                    strands[1].Data.GetFlattenedPathGeometry().GetPointAtFractionLength(fraction, out var second, out _);
+                    return (first - second).Length < 1;
+                }
+                Check(StrandsMeet(0) && StrandsMeet(0.5) && StrandsMeet(1),
+                    prefix + " port curves meet at both ends and cross in the middle");
+                foreach (int dpi in new[] { 96, 120, 144, 192 })
+                {
+                    double scale = dpi / 96.0;
+                    var image = new RenderTargetBitmap((int)Math.Ceiling(flow.ActualWidth * scale), (int)Math.Ceiling(flow.ActualHeight * scale), dpi, dpi, PixelFormats.Pbgra32);
+                    var drawing = new DrawingVisual();
+                    using (var context = drawing.RenderOpen())
+                        context.DrawRectangle(new VisualBrush(flow), null, new Rect(0, 0, flow.ActualWidth, flow.ActualHeight));
+                    image.Render(drawing);
+                    var pixels = new byte[image.PixelWidth * image.PixelHeight * 4];
+                    image.CopyPixels(pixels, image.PixelWidth * 4, 0);
+                    int fractional = Enumerable.Range(0, pixels.Length / 4).Count(i => pixels[i * 4 + 3] is > 0 and < 255);
+                    Check(fractional > 20, prefix + " " + dpi + " DPI port curves have antialiased edges (fractional=" + fractional + ")");
+                }
+                panel.Width = 300; Pump();
+                Check(FlowFits(), prefix + " port curves remain between the labels in a narrow window");
+                panel.Width = 380; Pump();
                 var repeated = new ConnectionViewModel(new ServerProfile { Name = "lycoris", Host = "lycoris", User = "lycoris" }, new NoNetwork(), logger, () => { });
                 var distinct = new ConnectionViewModel(new ServerProfile { Name = "工作机", Host = "lycoris", User = "lycoris", RemotePort = 17891 }, new NoNetwork(), logger, () => { });
                 Check(repeated.EndpointLabel.Length == 0 && distinct.EndpointLabel == "lycoris@lycoris", prefix + " home repeats an SSH address only when the host differs from the server name");

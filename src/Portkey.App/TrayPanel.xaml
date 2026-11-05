@@ -29,13 +29,18 @@
                   </TextBlock>
                   <Border Background="{DynamicResource ControlBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12" Margin="0,20,0,0" Padding="18,12">
                     <Grid>
-                      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="36" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                      <StackPanel>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1.1*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                      <StackPanel x:Name="LocalEndpoint">
                         <TextBlock Text="本地代理" FontSize="13" Foreground="{DynamicResource SecondaryTextBrush}" />
                         <TextBlock x:Name="LocalPortLabel" Text="{Binding Selected.Profile.LocalPort}" Typography.NumeralAlignment="Tabular" FontSize="20" Margin="0,3,0,0" />
                       </StackPanel>
-                      <Path Grid.Column="1" Style="{StaticResource StrokeIcon}" Width="24" Height="16" Stroke="{DynamicResource SecondaryTextBrush}" Data="M 2,8 L 22,8 M 16,2 L 22,8 L 16,14" />
-                      <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                      <Viewbox x:Name="PortFlow" Grid.Column="1" Height="32" MaxWidth="104" Margin="4,0" Stretch="Uniform" IsHitTestVisible="False" SnapsToDevicePixels="False" UseLayoutRounding="False">
+                        <Canvas Width="100" Height="32">
+                          <Path Style="{StaticResource StrokeIcon}" Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.8" SnapsToDevicePixels="False" UseLayoutRounding="False" Data="M 4,16 C 16,16 20,7 32,7 C 41,7 44,12.5 50,16 C 56,19.5 59,25 68,25 C 80,25 84,16 96,16" />
+                          <Path Style="{StaticResource StrokeIcon}" Stroke="{DynamicResource SecondaryTextBrush}" StrokeThickness="1.8" SnapsToDevicePixels="False" UseLayoutRounding="False" Data="M 4,16 C 16,16 20,25 32,25 C 41,25 44,19.5 50,16 C 56,12.5 59,7 68,7 C 80,7 84,16 96,16" />
+                        </Canvas>
+                      </Viewbox>
+                      <StackPanel x:Name="RemoteEndpoint" Grid.Column="2" HorizontalAlignment="Right">
                         <TextBlock Text="服务器端口" FontSize="13" Foreground="{DynamicResource SecondaryTextBrush}" HorizontalAlignment="Right" />
                         <TextBlock x:Name="RemotePortLabel" Text="{Binding Selected.Profile.RemotePort}" Typography.NumeralAlignment="Tabular" FontSize="20" HorizontalAlignment="Right" Margin="0,3,0,0" />
                       </StackPanel>
