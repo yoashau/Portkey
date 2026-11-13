@@ -22,6 +22,11 @@
     <SolidColorBrush x:Key="SwitchTrackBrush" Color="#D0CCC7" />
     <SolidColorBrush x:Key="SwitchThumbBrush" Color="#FFFFFF" />
     <SolidColorBrush x:Key="DangerBrush" Color="#92553F" />
+    <Style x:Key="KeyboardFocusOutline" TargetType="Control">
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Control">
+        <Border Margin="-2" BorderBrush="{DynamicResource TextBrush}" BorderThickness="1" CornerRadius="10" />
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
     <Style TargetType="TextBlock"><Setter Property="local:OutlineTextRendering.Enabled" Value="True" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
@@ -38,6 +43,7 @@
       <Setter Property="HorizontalAlignment" Value="Center" />
     </Style>
     <Style TargetType="Button">
+      <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusOutline}" />
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
       <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
@@ -55,13 +61,11 @@
               <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="9" />
               <Border x:Name="Hover" Background="{DynamicResource HoverBrush}" CornerRadius="9" Opacity="0" />
               <Border x:Name="Press" Background="{DynamicResource PressedBrush}" CornerRadius="9" Opacity="0" />
-              <Border x:Name="FocusRing" Background="{DynamicResource FocusBrush}" CornerRadius="9" Opacity="0" IsHitTestVisible="False" />
               <ContentPresenter Margin="{TemplateBinding Padding}" RecognizesAccessKey="True" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
             </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Hover" Property="Opacity" Value="1" /></Trigger>
               <Trigger Property="IsPressed" Value="True"><Setter TargetName="Press" Property="Opacity" Value="1" /></Trigger>
-              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusRing" Property="Opacity" Value="1" /></Trigger>
               <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4" /></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -124,7 +128,6 @@
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="HelpSurface" Property="Background" Value="{DynamicResource HoverBrush}" /></Trigger>
-              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="HelpSurface" Property="Background" Value="{DynamicResource FocusBrush}" /></Trigger>
               <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4" /></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -168,7 +171,6 @@
             </Border>
             <ControlTemplate.Triggers>
               <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource HoverBrush}" /></Trigger>
-              <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="{DynamicResource HoverBrush}" /></Trigger>
               <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4" /></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -230,6 +232,7 @@
       </Setter.Value></Setter>
     </Style>
     <Style x:Key="DisclosureToggle" TargetType="ToggleButton">
+      <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusOutline}" />
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
       <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
@@ -242,7 +245,6 @@
           <Grid>
             <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="9" />
             <Border x:Name="Hover" Background="{DynamicResource HoverBrush}" CornerRadius="9" Opacity="0" />
-            <Border x:Name="FocusRing" Background="{DynamicResource FocusBrush}" CornerRadius="9" Opacity="0" IsHitTestVisible="False" />
             <Grid Margin="{TemplateBinding Padding}">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="18" /></Grid.ColumnDefinitions>
               <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True" />
@@ -252,13 +254,13 @@
           <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Hover" Property="Opacity" Value="1" /></Trigger>
             <Trigger Property="IsChecked" Value="True"><Setter TargetName="Chevron" Property="Data" Value="M 1,6.6 L 6,1.8 L 11,6.6" /></Trigger>
-            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="FocusRing" Property="Opacity" Value="1" /></Trigger>
             <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4" /></Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value></Setter>
     </Style>
     <Style TargetType="ComboBox" BasedOn="{StaticResource DefaultComboBoxStyle}">
+      <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusOutline}" />
       <Setter Property="Border.CornerRadius" Value="9" />
       <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
@@ -282,7 +284,7 @@
             </Popup>
           </Grid>
           <ControlTemplate.Triggers>
-            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="DropDownToggle" Property="Background" Value="{DynamicResource FocusBrush}" /></Trigger>
+            <Trigger Property="IsDropDownOpen" Value="True"><Setter TargetName="DropDownToggle" Property="Background" Value="{DynamicResource FocusBrush}" /></Trigger>
             <MultiDataTrigger>
               <MultiDataTrigger.Conditions>
                 <Condition Binding="{Binding IsDropDownOpen, RelativeSource={RelativeSource Self}}" Value="True" />
@@ -331,6 +333,7 @@
     </Style>
     <!-- Native CheckBox behavior and automation, presented as Intext's 38 x 22 switch. -->
     <Style TargetType="CheckBox">
+      <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusOutline}" />
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
       <Setter Property="FontSize" Value="15" />
       <Setter Property="MinHeight" Value="36" />
@@ -343,12 +346,10 @@
             <Border x:Name="Box" Grid.Column="1" Width="38" Height="22" CornerRadius="11" Background="{DynamicResource SwitchTrackBrush}" HorizontalAlignment="Right" VerticalAlignment="Center">
               <Border x:Name="Mark" Width="16" Height="16" CornerRadius="8" Margin="3" Background="{DynamicResource SwitchThumbBrush}" HorizontalAlignment="Left" />
             </Border>
-            <Border x:Name="SwitchFocus" Grid.Column="1" Width="44" Height="28" CornerRadius="14" HorizontalAlignment="Right" Margin="0,0,-3,0" BorderBrush="{DynamicResource TextBrush}" BorderThickness="1" Opacity="0" IsHitTestVisible="False" />
           </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property="IsChecked" Value="True"><Setter TargetName="Box" Property="Background" Value="{DynamicResource AccentBrush}" /><Setter TargetName="Mark" Property="HorizontalAlignment" Value="Right" /></Trigger>
             <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="Opacity" Value="0.85" /></Trigger>
-            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="SwitchFocus" Property="Opacity" Value="1" /></Trigger>
             <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4" /></Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>

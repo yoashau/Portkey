@@ -64,6 +64,8 @@ public static class OutlineTextRendering
         private bool queued;
         private bool disposed;
         private bool waitingForLayer;
+        private bool waitingForScrollRender;
+        private readonly HashSet<DependencyObject> sharedAncestors = [];
         private readonly List<(DependencyObject Target, DependencyPropertyDescriptor Property, EventHandler Handler)> watchers = [];
         private readonly List<Freezable> contextValues = [];
         public bool Active => adorner is not null;
@@ -90,13 +92,21 @@ public static class OutlineTextRendering
             // Opacity does not change layout, the retained native drawing or UIA.
             // The mirrored drawing includes selection/IME marks, not just glyphs.
             source.SetCurrentValue(UIElement.OpacityProperty, 0.0);
+            for (DependencyObject? item = layer; item is not null; item = VisualTreeHelper.GetParent(item))
+                sharedAncestors.Add(item);
             for (DependencyObject? item = source; item is UIElement element; item = VisualTreeHelper.GetParent(item))
             {
                 Watch(element, UIElement.ClipProperty, ContextChanged);
                 Watch(element, UIElement.ClipToBoundsProperty, ContextChanged);
-                Watch(element, UIElement.RenderTransformProperty, ContextChanged);
-                if (!ReferenceEquals(item, source)) Watch(element, UIElement.OpacityProperty, ContextChanged);
-                if (element is FrameworkElement framework) Watch(framework, FrameworkElement.LayoutTransformProperty, ContextChanged);
+                // The adorner and its source already move and fade together under
+                // shared ancestors. Watching those animations redraws every label
+                // on every frame without changing their relative appearance.
+                if (!sharedAncestors.Contains(item))
+                {
+                    Watch(element, UIElement.RenderTransformProperty, ContextChanged);
+                    if (!ReferenceEquals(item, source)) Watch(element, UIElement.OpacityProperty, ContextChanged);
+                    if (element is FrameworkElement framework) Watch(framework, FrameworkElement.LayoutTransformProperty, ContextChanged);
+                }
             }
             RefreshContextValues();
             owner.LayoutUpdated += LayoutUpdated;
@@ -154,8 +164,12 @@ public static class OutlineTextRendering
             contextValues.Clear();
             for (DependencyObject? item = source; item is UIElement element; item = VisualTreeHelper.GetParent(item))
             {
-                Track(element.Clip); Track(element.RenderTransform);
-                if (element is FrameworkElement framework) Track(framework.LayoutTransform);
+                Track(element.Clip);
+                if (!sharedAncestors.Contains(item))
+                {
+                    Track(element.RenderTransform);
+                    if (element is FrameworkElement framework) Track(framework.LayoutTransform);
+                }
             }
             void Track(Freezable? value)
             {
@@ -164,12 +178,25 @@ public static class OutlineTextRendering
             }
         }
         private void RetryOnLayout(object? sender, EventArgs args) => Queue();
-        private void LayoutUpdated(object? sender, EventArgs args) => Queue();
+        private void LayoutUpdated(object? sender, EventArgs args) { if (owner.IsVisible) Queue(); }
         private void Changed(object sender, DependencyPropertyChangedEventArgs args) => Queue();
         private void SizeChanged(object sender, SizeChangedEventArgs args) => Queue();
         private void TextChanged(object sender, TextChangedEventArgs args) => Queue();
         private void SelectionChanged(object sender, RoutedEventArgs args) => Queue();
-        private void Scrolled(object sender, ScrollChangedEventArgs args) => Queue();
+        private void Scrolled(object sender, ScrollChangedEventArgs args)
+        {
+            // TextBoxView updates its line-visual offsets after ScrollChanged.
+            // Capture them at the next render, not the old pre-scroll drawing.
+            if (waitingForScrollRender) return;
+            waitingForScrollRender = true;
+            CompositionTarget.Rendering += ScrollRendered;
+        }
+        private void ScrollRendered(object? sender, EventArgs args)
+        {
+            CompositionTarget.Rendering -= ScrollRendered;
+            waitingForScrollRender = false;
+            Queue();
+        }
         private void FocusChanged(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs args) => Queue();
         private void Queue()
         {
@@ -185,20 +212,18 @@ public static class OutlineTextRendering
                 // The adorner already inherits opacity from ancestors shared
                 // with its source (notably ContextMenu's opening animation).
                 // Mirror only the branch between the source and that ancestor.
-                var shared = new HashSet<DependencyObject>();
-                for (DependencyObject? item = layer; item is not null; item = VisualTreeHelper.GetParent(item))
-                    shared.Add(item);
                 double opacity = originalOpacity;
-                for (DependencyObject? item = VisualTreeHelper.GetParent(source); item is not null && !shared.Contains(item); item = VisualTreeHelper.GetParent(item))
+                for (DependencyObject? item = VisualTreeHelper.GetParent(source); item is not null && !sharedAncestors.Contains(item); item = VisualTreeHelper.GetParent(item))
                     if (item is UIElement visual) opacity *= visual.Opacity;
                 adorner.Opacity = opacity;
                 adorner.Visibility = source.IsVisible ? Visibility.Visible : Visibility.Collapsed;
-                adorner.Refresh();
+                if (source.IsVisible) adorner.Refresh();
             });
         }
         public void Dispose()
         {
             disposed = true;
+            if (waitingForScrollRender) CompositionTarget.Rendering -= ScrollRendered;
             owner.LayoutUpdated -= LayoutUpdated;
             owner.LayoutUpdated -= RetryOnLayout;
             owner.IsVisibleChanged -= Changed;
@@ -227,6 +252,8 @@ public static class OutlineTextRendering
         private Drawing? drawing;
         private string paintSignature = "";
         private string layoutSignature = "";
+        private readonly Dictionary<string, Geometry> outlineCache = [];
+        private readonly Queue<string> outlineKeys = [];
         public int GlyphCount { get; private set; }
         public void Refresh()
         {
@@ -273,7 +300,7 @@ public static class OutlineTextRendering
             if (native is GlyphRunDrawing glyph)
                 return $"{glyph.ForegroundBrush}|{glyph.GlyphRun.FontRenderingEmSize}|{glyph.GlyphRun.BaselineOrigin}|{string.Join(',', glyph.GlyphRun.GlyphIndices)}|{string.Join(',', glyph.GlyphRun.AdvanceWidths)}|{string.Join(',', glyph.GlyphRun.GlyphOffsets ?? [])}|{glyph.GlyphRun.GlyphTypeface.FontUri}|{glyph.GlyphRun.GlyphTypeface.Weight}|{glyph.GlyphRun.GlyphTypeface.Style}|{glyph.GlyphRun.GlyphTypeface.Stretch}|{glyph.GlyphRun.GlyphTypeface.StyleSimulations}|{glyph.GlyphRun.IsSideways}|{glyph.GlyphRun.BidiLevel}|{glyph.GlyphRun.PixelsPerDip}";
             if (native is DrawingGroup group)
-                return $"{group.Transform}|{group.ClipGeometry}|{group.Opacity}|" + string.Join(';', group.Children.Select(Fingerprint));
+                return $"{group.Transform?.Value}|{group.ClipGeometry}|{group.Opacity}|" + string.Join(';', group.Children.Select(Fingerprint));
             return native is GeometryDrawing shape ? $"{shape.Brush}|{shape.Pen}|{shape.Geometry}" : native.ToString() ?? "";
         }
         private static int CountGlyphs(Drawing native) => native switch
@@ -282,12 +309,19 @@ public static class OutlineTextRendering
             DrawingGroup group => group.Children.Sum(CountGlyphs),
             _ => 0
         };
-        private static Drawing? Outline(Drawing? native)
+        private Drawing? Outline(Drawing? native)
         {
             if (native is GlyphRunDrawing glyph)
             {
-                var geometry = glyph.GlyphRun.BuildGeometry();
-                geometry.Freeze();
+                string key = Fingerprint(glyph);
+                if (!outlineCache.TryGetValue(key, out var geometry))
+                {
+                    geometry = glyph.GlyphRun.BuildGeometry();
+                    geometry.Freeze();
+                    if (outlineKeys.Count >= 128) outlineCache.Remove(outlineKeys.Dequeue());
+                    outlineCache.Add(key, geometry);
+                    outlineKeys.Enqueue(key);
+                }
                 return new GeometryDrawing(glyph.ForegroundBrush, null, geometry);
             }
             if (native is DrawingGroup group)

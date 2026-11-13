@@ -140,9 +140,16 @@ internal sealed class TrayManager : Forms.NativeWindow, IDisposable
             GetWindowRect(new WindowInteropHelper(panel).Handle, out var rect);
             bool inside = point.X >= rect.Left && point.X < rect.Right && point.Y >= rect.Top && point.Y < rect.Bottom;
             GetWindowThreadProcessId(WindowFromPoint(point), out uint targetProcess);
-            if (!inside && targetProcess != Environment.ProcessId && !IconBounds().Contains(point.X, point.Y)) panel.Dispatcher.BeginInvoke(() => panel.Dismiss());
+            if (!inside && targetProcess != Environment.ProcessId) OnOutsideMouseDown(IconBounds().Contains(point.X, point.Y));
         }
         return CallNextHookEx(mouseHook, code, message, data);
+    }
+    internal void OnOutsideMouseDown(bool onTrayIcon)
+    {
+        // Release capture even for the tray icon, whose own callback toggles
+        // the panel. Otherwise the first click cannot reach the shell.
+        panel.CloseDropDowns();
+        if (!onTrayIcon) panel.Dispatcher.BeginInvoke(() => panel.Dismiss());
     }
     public void Show()
     {

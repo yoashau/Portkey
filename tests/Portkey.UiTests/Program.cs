@@ -23,7 +23,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        string output = Path.GetFullPath(args.Single());
+        if (args.Length == 2 && args[0] == "--outside-target") return ExternalClickTarget.Run(args[1]);
+        string output = Path.GetFullPath(args[0]);
         Directory.CreateDirectory(output);
         string temporary = Path.Combine(Path.GetTempPath(), "portkey-ui-" + Guid.NewGuid());
         // Load the exact compiled App.xaml without running real SSH/settings startup.
@@ -36,11 +37,79 @@ internal static class Program
         app.InitializeComponent();
         var logger = new DiagnosticLogger(temporary);
         var model = new AppViewModel(new SettingsStore(temporary), logger);
+        Directory.CreateDirectory(temporary);
+        string sshConfig = Path.Combine(temporary, "ssh_config");
+        File.WriteAllText(sshConfig, """
+            Host example
+              User fixture-user
+              Port 2201
+              IdentityFile C:/fixture/example-key
+            Host second
+              User imported-user
+              Port 2222
+              IdentityFile C:/fixture/second-key
+            Host slow
+              User slow-user
+              Port 2299
+            Host slowedit
+              User slowedit-user
+              Port 2288
+            Host precedence-*
+              User first-user
+              Port 2255
+            Host precedence-one
+              User second-user
+              Port 2266
+            Host unavailable
+              User configured-user
+            Host timeout
+              User timeout-user
+            Host conditional
+              User default-user
+            Match user alternate
+              Port 2311
+              IdentityFile C:/fixture/conditional-key
+            Host bare
+              HostName bare.invalid
+            """);
+        var slow = new TaskCompletionSource<ResolvedHost>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slowEdit = new TaskCompletionSource<ResolvedHost>(TaskCreationOptions.RunContinuationsAsynchronously);
+        IReadOnlyList<string> defaultIdentities = ["~/.ssh/id_rsa", "~/.ssh/id_ecdsa"];
+        Task<ResolvedHost> ResolveFixture(ServerProfile profile, CancellationToken token)
+        {
+            if (profile.Host == "slow") return slow.Task;
+            if (profile.Host == "slowedit") return slowEdit.Task.ContinueWith(task => task.Result with
+            {
+                User = profile.User.Length == 0 ? task.Result.User : profile.User,
+                Port = profile.User == "typed-while-loading" ? "3399" : task.Result.Port
+            }, TaskScheduler.Default);
+            if (profile.Host == "unavailable") return Task.FromException<ResolvedHost>(new IOException("SSH fixture unavailable"));
+            if (profile.Host == "timeout") return Task.FromException<ResolvedHost>(new OperationCanceledException("SSH fixture timed out"));
+            if (profile.Host == "conditional") return Task.FromResult(new ResolvedHost(profile.Host,
+                profile.User.Length == 0 ? "default-user" : profile.User,
+                profile.SshPort?.ToString() ?? (profile.User == "alternate" ? "2311" : "22"),
+                profile.User == "alternate" ? "C:/fixture/conditional-key" : defaultIdentities[0], false)
+            {
+                IdentityFiles = profile.User == "alternate" ? ["C:/fixture/conditional-key"] : defaultIdentities
+            });
+            var (user, port, identity) = profile.Host switch
+            {
+                "example" => ("fixture-user", "2201", "C:/fixture/example-key"),
+                "second" => ("imported-user", "2222", "C:/fixture/second-key"),
+                "precedence-one" => ("first-user", "2255", "~/.ssh/id_rsa"),
+                _ => ("default-user", "22", "~/.ssh/id_rsa")
+            };
+            return Task.FromResult(new ResolvedHost(profile.Host, profile.User.Length == 0 ? user : profile.User,
+                profile.SshPort?.ToString() ?? port, profile.IdentityFile.Length == 0 ? identity : profile.IdentityFile, false)
+            {
+                IdentityFiles = profile.Host is "bare" or "precedence-one" ? defaultIdentities : [identity]
+            });
+        }
         var profile = new ServerProfile { Name = "example", Host = "example" };
         var connection = new ConnectionViewModel(profile, new NoNetwork(), logger, () => { });
         model.Servers.Add(connection);
         model.Selected = connection;
-        var panel = new TrayPanel(model) { Left = 100, Top = 100 };
+        var panel = new TrayPanel(model, sshConfig, ResolveFixture, _ => Task.FromResult(defaultIdentities)) { Left = 100, Top = 100 };
         var report = new List<string> { "Initial production theme: " + app.ThemeMode };
         Console.WriteLine(report[0]);
         void Check(bool value, string detail)
@@ -129,6 +198,11 @@ internal static class Program
         }
         try
         {
+            if (args.Length > 1 && args[1] is "--interactions-only" or "--settings-only")
+            {
+                InteractionTests.Run(output, temporary, panel, model, slow, slowEdit, args[1] == "--settings-only", milliseconds => Pump(milliseconds), Check);
+                return 0;
+            }
             using (var tray = new TrayManager(panel, model, () => Task.CompletedTask))
             {
                 for (int attempt = 1; attempt <= 2; attempt++)

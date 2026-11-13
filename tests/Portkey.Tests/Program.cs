@@ -402,6 +402,40 @@ AsyncTest("actual OpenSSH resolves host using -G without a network connection", 
     var resolved = await new SshConfigReader(new ProcessRunner()).ResolveAsync(server with { Host = "portkey-test.invalid", SshPort = 2222 }, CancellationToken.None);
     Assert(resolved.HostName.Length > 0 && resolved.User.Length > 0 && resolved.Port == "2222");
 });
+AsyncTest("OpenSSH default identity candidates are read without loading user config", async () =>
+{
+    var reader = new SshConfigReader(new ProcessRunner());
+    var defaults = await reader.ReadDefaultIdentityFilesAsync(CancellationToken.None);
+    Assert(defaults.Count > 0 && defaults.All(x => !string.IsNullOrWhiteSpace(x)));
+    var again = await reader.ReadDefaultIdentityFilesAsync(CancellationToken.None);
+    Assert(defaults.SequenceEqual(again));
+});
+AsyncTest("OpenSSH Match user changes effective port and identity without network access", async () =>
+{
+    string directory = Path.Combine(Path.GetTempPath(), "portkey-ssh-match-" + Guid.NewGuid());
+    Directory.CreateDirectory(directory);
+    try
+    {
+        string config = Path.Combine(directory, "config");
+        await File.WriteAllTextAsync(config, "Host conditional\n  User default-user\nMatch user alternate\n  Port 2311\n  IdentityFile /fixture/conditional-key\n");
+        var runner = new ProcessRunner();
+        async Task<string> Inspect(ServerProfile profile)
+        {
+            var start = SshCommand.Create(profile);
+            start.ArgumentList.Add("-F"); start.ArgumentList.Add(config); start.ArgumentList.Add("-G");
+            SshCommand.AddDestination(start, profile.Host);
+            var result = await runner.RunAsync(start, null, TimeSpan.FromSeconds(15), CancellationToken.None);
+            Assert(result.ExitCode == 0, result.Error);
+            return result.Output.Replace("\r", "");
+        }
+        var profile = server with { Host = "conditional" };
+        string initial = await Inspect(profile);
+        string changed = await Inspect(profile with { User = "alternate" });
+        Assert(initial.Contains("\nport 22\n") && !initial.Contains("identityfile /fixture/conditional-key"));
+        Assert(changed.Contains("\nport 2311\n") && changed.Contains("\nidentityfile /fixture/conditional-key\n"));
+    }
+    finally { Directory.Delete(directory, true); }
+});
 AsyncTest("process pipes preserve UTF-8 text without a BOM", async () =>
 {
     string text = "\u53e6\u4e00\u4e2a";

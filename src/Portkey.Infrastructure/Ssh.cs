@@ -108,6 +108,7 @@ public sealed class SshTransport(ProcessRunner runner) : IRemoteTransport
 
 public sealed record ResolvedHost(string HostName, string User, string Port, string IdentityFile, bool HasConfiguredForwards)
 {
+    public IReadOnlyList<string> IdentityFiles { get; init; } = [];
     public const string ConfiguredForwardsMessage = "此 SSH Host 配置中已有端口转发。请建立不含 LocalForward / RemoteForward / DynamicForward 的专用 Host 别名，以免重复建立其他转发。";
     public void EnsureDedicatedTunnel()
     {
@@ -118,6 +119,8 @@ public sealed record SpecifiedSshSettings(string? User, int? Port, string? Ident
 
 public sealed class SshConfigReader(ProcessRunner runner)
 {
+    private readonly object defaultIdentityLock = new();
+    private Task<IReadOnlyList<string>>? defaultIdentities;
     public async Task<ResolvedHost> ResolveAsync(ServerProfile server, CancellationToken ct)
     {
         var start = SshCommand.Create(server);
@@ -125,10 +128,46 @@ public sealed class SshConfigReader(ProcessRunner runner)
         SshCommand.AddDestination(start, server.Host);
         var result = await runner.RunAsync(start, null, TimeSpan.FromSeconds(15), ct);
         if (result.ExitCode != 0) throw new IOException(result.Error);
-        var entries = result.Output.Split('\n').Select(x => x.Trim().Split(' ', 2))
-            .Where(x => x.Length == 2).GroupBy(x => x[0], StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Key, x => x.First()[1], StringComparer.OrdinalIgnoreCase);
+        var lines = result.Output.Split('\n').Select(x => x.Trim().Split(' ', 2)).Where(x => x.Length == 2).ToArray();
+        var entries = lines.GroupBy(x => x[0], StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Key, x => x.First()[1], StringComparer.OrdinalIgnoreCase);
         return new(entries.GetValueOrDefault("hostname", server.Host), entries.GetValueOrDefault("user", ""), entries.GetValueOrDefault("port", "22"), entries.GetValueOrDefault("identityfile", ""),
-            entries.Keys.Any(x => x is "localforward" or "remoteforward" or "dynamicforward"));
+            entries.Keys.Any(x => x is "localforward" or "remoteforward" or "dynamicforward"))
+        {
+            IdentityFiles = lines.Where(x => x[0].Equals("identityfile", StringComparison.OrdinalIgnoreCase)).Select(x => x[1]).ToArray()
+        };
+    }
+    public async Task<IReadOnlyList<string>> ReadDefaultIdentityFilesAsync(CancellationToken ct)
+    {
+        Task<IReadOnlyList<string>> pending;
+        lock (defaultIdentityLock)
+        {
+            if (defaultIdentities is null)
+            {
+                defaultIdentities = ReadDefaultsAsync();
+                _ = defaultIdentities.ContinueWith(task => { _ = task.Exception; }, CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+            pending = defaultIdentities;
+        }
+        try { return await pending.WaitAsync(ct); }
+        catch
+        {
+            if (pending.IsFaulted || pending.IsCanceled)
+                lock (defaultIdentityLock) { if (ReferenceEquals(defaultIdentities, pending)) defaultIdentities = null; }
+            throw;
+        }
+    }
+    private async Task<IReadOnlyList<string>> ReadDefaultsAsync()
+    {
+        var start = SshCommand.Create(new ServerProfile { Name = "SSH defaults", Host = "localhost" });
+        start.ArgumentList.Add("-F"); start.ArgumentList.Add("none"); start.ArgumentList.Add("-G");
+        SshCommand.AddDestination(start, "localhost");
+        var result = await runner.RunAsync(start, null, TimeSpan.FromSeconds(15), CancellationToken.None);
+        if (result.ExitCode != 0) throw new IOException(result.Error);
+        var identities = result.Output.Split('\n').Select(x => x.Trim().Split(' ', 2))
+            .Where(x => x.Length == 2 && x[0].Equals("identityfile", StringComparison.OrdinalIgnoreCase)).Select(x => x[1]).ToArray();
+        if (identities.Length == 0) throw new IOException("OpenSSH 未返回默认私钥候选。");
+        return identities;
     }
     public IReadOnlyList<string> ReadAliases(string path)
     {

@@ -13,8 +13,9 @@
         </DockPanel>
       </Border>
       <ScrollViewer x:Name="PageScroll" Grid.Row="1" ClipToBounds="True" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly" CanContentScroll="False">
+        <AdornerDecorator>
+        <AdornerDecorator.RenderTransform><TranslateTransform x:Name="PageTranslation" /></AdornerDecorator.RenderTransform>
         <Grid x:Name="Controls" IsEnabled="{Binding NotBusy}" MinHeight="{Binding ActualHeight, ElementName=PageScroll}">
-          <Grid.RenderTransform><TranslateTransform x:Name="PageTranslation" /></Grid.RenderTransform>
           <Grid x:Name="HomePage" MinHeight="400" Margin="0,8,0,8">
             <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
             <Grid Margin="18,8,18,16">
@@ -170,6 +171,7 @@
             <TextBox x:Name="LogsText" Style="{StaticResource DocumentBox}" AutomationProperties.Name="连接日志" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap" VerticalContentAlignment="Top" FontFamily="{StaticResource MonoFont}" FontSize="13" Padding="12" Margin="18,8,18,16" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
           </Grid>
         </Grid>
+        </AdornerDecorator>
       </ScrollViewer>
       <Border x:Name="ActionFooter" Grid.Row="2" Visibility="Collapsed" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="18,12">
         <Grid IsEnabled="{Binding NotBusy}">
